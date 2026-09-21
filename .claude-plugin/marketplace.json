@@ -1,0 +1,14 @@
+{
+  "name": "sowadalmughni",
+  "owner": {
+    "name": "Md. Sowad Al-Mughni",
+    "url": "https://github.com/sowadalmughni"
+  },
+  "plugins": [
+    {
+      "name": "agents-md-architect",
+      "source": "./",
+      "description": "Cross-tool AGENTS.md generator with architecture-aware content and CLAUDE.md/AGENTS.md drift detection."
+    }
+  ]
+}
