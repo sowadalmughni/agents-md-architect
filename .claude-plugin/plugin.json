@@ -1,7 +1,7 @@
 {
   "name": "agents-md-architect",
   "description": "Detects which instruction file Claude Code actually loads (CLAUDE.md still wins if present) and generates a cross-tool AGENTS.md with real module boundaries and data flow rules, not just setup commands. Flags drift when a repo has both files disagreeing.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": {
     "name": "Md. Sowad Al-Mughni",
     "url": "https://www.kitalonlabs.com"

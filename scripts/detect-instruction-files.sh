@@ -6,17 +6,27 @@
 #
 # USAGE:  bash scripts/detect-instruction-files.sh [working-directory]
 #
-# Implements the EXACT rule Claude Code v2.1.277+ uses to decide between
-# CLAUDE.md and AGENTS.md: walk from the repository root down to the working
-# directory looking for CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md at
-# each level. If any exist, AGENTS.md is never consulted, regardless of
-# whether AGENTS.md is also present. This script does NOT check for a
-# personal ~/.claude/CLAUDE.md or an org-managed file, because those do not
-# count toward the walk either, per Anthropic's documented behavior.
+# Implements the rule Claude Code v2.1.277+ uses to decide between CLAUDE.md
+# and AGENTS.md: walk the working directory and every directory above it,
+# looking for CLAUDE.md, .claude/CLAUDE.md, or CLAUDE.local.md at each level.
+# If any exist, AGENTS.md is never consulted, regardless of whether AGENTS.md
+# is also present. This script does NOT check for a personal ~/.claude/CLAUDE.md
+# or an org-managed file, because those do not count toward the walk either,
+# per Anthropic's documented behavior.
+#
+# NOTE ON THE WALK BOUNDARY: Anthropic's own docs never state explicitly
+# whether the walk stops at the git repository root or continues to the
+# filesystem root — the documented wording is just "working directory and
+# every directory above it." This script uses the git repository root as its
+# boundary, matching how every example in Anthropic's docs is framed and how
+# instruction files are used in practice. It will NOT see a CLAUDE.md/AGENTS.md
+# placed above your repo root, in a directory added via `--add-dir`, or in an
+# unusual nested-repo layout. Treat the verdict below as accurate for the
+# common case, not as a guarantee for every possible setup.
 # =============================================================================
 
 WORKDIR="${1:-$(pwd)}"
-WORKDIR="$(cd "$WORKDIR" && pwd)"
+WORKDIR="$(cd "$WORKDIR" && pwd -P)"
 
 echo ""
 echo "═══════════════════════════════════════════════════"
@@ -28,14 +38,23 @@ echo "════════════════════════�
 echo ""
 
 # ─────────────────────────────────────────────────────
-# 1. Find the repository root (git root, or filesystem root if no git)
+# 1. Find the repository root (git root, or filesystem root if no git).
+#    See the walk-boundary note in the file header: this is this script's
+#    practical scoping choice, not a directly confirmed platform limit.
 # ─────────────────────────────────────────────────────
 REPO_ROOT=$(git -C "$WORKDIR" rev-parse --show-toplevel 2>/dev/null)
 if [ -z "$REPO_ROOT" ]; then
-  echo "  Not inside a git repository — using filesystem root as the walk boundary."
-  echo "  This is a conservative fallback; the actual walk boundary in Claude Code"
-  echo "  is the repository/project root."
+  echo "  Not inside a git repository — walking all the way to filesystem root."
+  echo "  Outside a git repo there's no natural boundary to stop at, so this"
+  echo "  walk is broader than the git-repo case above, not narrower."
   REPO_ROOT="/"
+else
+  # Normalize through the same cd+pwd -P pipeline as WORKDIR. Git and bash can
+  # report the identical directory as different strings (e.g. a Windows short
+  # 8.3 name vs. the long name, a C:/ prefix vs. /c/, or a symlinked path like
+  # macOS's /tmp -> /private/tmp) — without this, the walk below would never
+  # match REPO_ROOT and would silently fall through to the filesystem root.
+  REPO_ROOT="$(cd "$REPO_ROOT" && pwd -P)"
 fi
 
 echo "  Repository root: $REPO_ROOT"
@@ -83,6 +102,11 @@ for dir in "${WALK_DIRS[@]}"; do
     echo "    ℹ  Found: AGENTS.md (read by Claude Code only if NO qualifying CLAUDE.md exists anywhere in this walk)"
     AGENTS_FILES+=("$dir/AGENTS.md")
   fi
+
+  if [ -f "$dir/.claude/AGENTS.md" ]; then
+    echo "    ℹ  Found: .claude/AGENTS.md (read by Claude Code only if NO qualifying CLAUDE.md exists anywhere in this walk)"
+    AGENTS_FILES+=("$dir/.claude/AGENTS.md")
+  fi
 done
 
 # ─────────────────────────────────────────────────────
@@ -98,8 +122,8 @@ if [ -f "$HOME/.claude/CLAUDE.md" ]; then
   echo "     from being loaded for this project."
 fi
 
-if [ -f "$WORKDIR/.claude/rules" ]; then
-  echo "  ℹ  Found: .claude/rules"
+if [ -d "$WORKDIR/.claude/rules" ]; then
+  echo "  ℹ  Found: .claude/rules/"
   echo "     This does NOT count toward the walk either."
 fi
 

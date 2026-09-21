@@ -30,13 +30,15 @@ Claude Code's instruction-file loading behaves as one of two modes, controlled b
 
 ### What "of its own" means, precisely
 
-The check walks from the repository root down to the current working directory and looks for:
+The check walks the current working directory and every directory above it, looking for:
 
 - `CLAUDE.md`
 - `.claude/CLAUDE.md`
 - `CLAUDE.local.md`
 
-If **any** of these exist at **any** level of that walk, the project has instructions "of its own," the fallback does not trigger, and AGENTS.md is ignored entirely — even if AGENTS.md also exists.
+If **any** of these exist at **any** level of that walk, the project has instructions "of its own," the fallback does not trigger, and AGENTS.md is ignored entirely — even if AGENTS.md also exists. `AGENTS.md` itself has two qualifying locations, not one: Claude reads both `AGENTS.md` and `.claude/AGENTS.md` at each level.
+
+**Where exactly the walk stops is not stated in Anthropic's documentation.** The wording is "the working directory and every directory above it," with no explicit mention of a repository-root boundary. This skill's detector uses the git repository root as its practical stopping point — every example in Anthropic's docs is framed that way, and a qualifying file living above a repo root is vanishingly rare — but treat that boundary as this tool's scoping choice, not a directly confirmed platform limit. It won't catch a CLAUDE.md placed above your repo root, in a directory brought in via `--add-dir`, or in an unusual nested-repo layout.
 
 ### What does NOT count toward that check
 
@@ -44,10 +46,10 @@ These are real files that can exist in a Claude Code session, and none of them b
 
 - An organization's centrally managed instruction file
 - The user's own personal `~/.claude/CLAUDE.md`
-- A `.claude/rules` file
+- A `.claude/rules/` directory
 - A CLAUDE.md belonging to an added directory (a directory brought into context that is not part of the walked path)
 
-**Practical consequence:** a developer with a personal global `~/.claude/CLAUDE.md` can still have Claude Code load a given project's AGENTS.md, because the global file was never in the root-to-cwd walk to begin with. Do not assume the presence of any CLAUDE.md-shaped file anywhere in a person's setup blocks the fallback — only a project-scoped one in the actual walked path does.
+**Practical consequence:** a developer with a personal global `~/.claude/CLAUDE.md` can still have Claude Code load a given project's AGENTS.md, because the global file was never in the walked path to begin with. Do not assume the presence of any CLAUDE.md-shaped file anywhere in a person's setup blocks the fallback — only a qualifying one in the actual walked path does.
 
 ---
 

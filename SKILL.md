@@ -9,14 +9,14 @@ description: |
   Cursor, Copilot, Gemini CLI) are following different rules on the same repo. Also
   use when the user mentions instruction file drift, wants a single source of
   truth for multiple AI coding tools, or asks whether their project needs both
-  files. Detects every CLAUDE.md and AGENTS.md in the directory walk from repo
-  root to working directory, determines which one Claude Code actually loads
+  files. Detects every CLAUDE.md and AGENTS.md in the directory walk from the
+  working directory upward, determines which one Claude Code actually loads
   given current /config settings, flags drift when both exist with different
   content, and generates a tool-agnostic AGENTS.md as the canonical source of
   truth with an optional thin CLAUDE.md import shim for Claude-specific extensions.
 license: MIT
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
   author: "Md. Sowad Al-Mughni"
   company: "Kitalon Labs"
   website: "https://www.kitalonlabs.com"
@@ -25,6 +25,7 @@ metadata:
     - "https://github.com/sowadalmughni/spec-driven-dev"
     - "https://github.com/sowadalmughni/ai-codebase-audit"
     - "https://github.com/sowadalmughni/finops-guardian"
+allowed-tools: Read, Grep, Glob, Write, Edit
 ---
 
 # AGENTS.md Architect
@@ -33,13 +34,17 @@ You are a Principal Systems Architect defining the context boundaries every AI c
 
 ## Get the Facts Right First
 
-Claude Code added AGENTS.md support in version 2.1.277 (September 18, 2026). This is a fallback, not a replacement. The rule is exact: **if no CLAUDE.md exists anywhere in the directory walk from the repository root down to the current working directory, Claude Code reads AGENTS.md instead. If a qualifying CLAUDE.md exists at any level of that walk, it wins, unconditionally.**
+Claude Code added AGENTS.md support in version 2.1.277 (September 18, 2026). This is a fallback, not a replacement. The rule is exact: **if no CLAUDE.md exists anywhere in the directory walk from the working directory upward, Claude Code reads AGENTS.md instead. If a qualifying CLAUDE.md exists at any level of that walk, it wins, unconditionally.**
 
-Two details are easy to get wrong, and getting them wrong is the entire reason this skill needs a detection step before it writes anything:
+Anthropic's own documentation describes that walk as "the working directory and every directory above it" — it does not state explicitly where the walk stops. This skill's detector (and every claim below) treats the git repository root as the practical boundary, since that's how every example in Anthropic's docs is framed and how instruction files are used in practice. It won't see a CLAUDE.md/AGENTS.md placed above your repo root, in a directory added via `--add-dir`, or in an unusual nested-repo layout — say so if a user's situation looks like one of those.
 
-1. **Not every CLAUDE.md counts toward the walk.** A CLAUDE.md, `.claude/CLAUDE.md`, or `CLAUDE.local.md` found from root to working directory blocks the AGENTS.md fallback. An organization-managed file, the user's own `~/.claude/CLAUDE.md`, a `.claude/rules` file, or an added directory's CLAUDE.md do **not** count — the nested walk never sees them. A developer can have a personal global CLAUDE.md and still get AGENTS.md loaded for a given project.
+Three details are easy to get wrong, and getting them wrong is the entire reason this skill needs a detection step before it writes anything:
+
+1. **Not every CLAUDE.md counts toward the walk.** A CLAUDE.md, `.claude/CLAUDE.md`, or `CLAUDE.local.md` found from root to working directory blocks the AGENTS.md fallback. An organization-managed file, the user's own `~/.claude/CLAUDE.md`, a `.claude/rules/` directory, or an added directory's CLAUDE.md do **not** count — the nested walk never sees them. A developer can have a personal global CLAUDE.md and still get AGENTS.md loaded for a given project.
 
 2. **This is configurable and defaults to the fallback.** `/config` → Project instructions exposes an `instructionFiles` setting: `claude-md` disables the fallback entirely and restores old behavior; `claude-md-or-agents-md` is the default that does what's described above. Not yet available on Bedrock, Vertex, or Foundry. This does not extend to the Skills system — a project's Skills are unaffected by this setting.
+
+3. **AGENTS.md has two qualifying locations, not one.** Claude reads both `AGENTS.md` and `.claude/AGENTS.md` at each level of the walk. A repo using the latter is not "missing" its instructions — check both before concluding a project has no AGENTS.md.
 
 AGENTS.md itself predates this change by over a year. OpenAI released it in August 2025 and contributed it to the Linux Foundation's Agentic AI Foundation. By the time Claude Code added support, over 60,000 open-source projects had adopted it, and it was already read natively by Codex, Cursor, Devin, Gemini CLI, GitHub Copilot, Windsurf, Cline, Amp, and Aider. Claude Code was the last major holdout, not the trendsetter.
 
@@ -65,7 +70,7 @@ This skill generates the deeper layer: module boundaries an agent must not cross
 
 **Migration Mode.** A CLAUDE.md exists and the user wants to move to the cross-tool standard. Convert its content into `AGENTS.md`, then decide with the user whether to delete the old CLAUDE.md (simplest, and safe once AGENTS.md covers everything Claude needs) or keep a thin import shim using `./templates/claude-md-import-shim.md` (for teams who want Claude-specific extensions layered on top without duplicating the shared content).
 
-**Drift Audit Mode.** Both a qualifying CLAUDE.md and an AGENTS.md exist. Run `./scripts/detect-instruction-files.sh` to confirm which file Claude Code is actually loading, diff the two files' content, and report every point of disagreement before proposing a reconciliation.
+**Drift Audit Mode.** Both a qualifying CLAUDE.md and an AGENTS.md exist. The detection output in Step 1 already confirms which file Claude Code is actually loading and includes a content diff when exactly one of each qualifying file exists; report every point of disagreement from that diff before proposing a reconciliation.
 
 **Compatibility Check.** The user wants to confirm their AGENTS.md doesn't quietly assume Claude-specific tooling or syntax that Codex, Cursor, or another agent reading the same file won't understand. Scan for Claude-specific tool names, slash commands, or CLAUDE.md-only conventions bleeding into the shared file.
 
@@ -73,7 +78,11 @@ This skill generates the deeper layer: module boundaries an agent must not cross
 
 ### Step 1: Detect
 
-Run `./scripts/detect-instruction-files.sh` before writing anything. This walks from the repository root to the working directory, lists every CLAUDE.md, `.claude/CLAUDE.md`, `CLAUDE.local.md`, and `AGENTS.md` found, states explicitly which discovered files do and do not count toward the fallback rule, and states the resulting verdict: which file Claude Code actually loads right now.
+The verdict below was generated automatically when this skill loaded. Read it before writing anything — it lists every `CLAUDE.md`, `.claude/CLAUDE.md`, `CLAUDE.local.md`, `AGENTS.md`, and `.claude/AGENTS.md` found in the walk, states explicitly which discovered files do and do not count toward the fallback rule, and states the resulting verdict: which file Claude Code actually loads right now. If the working directory has changed since the skill loaded, re-run `./scripts/detect-instruction-files.sh` manually rather than trusting stale output.
+
+**Current instruction file state:**
+
+!`bash "${CLAUDE_SKILL_DIR}/scripts/detect-instruction-files.sh" .`
 
 ### Step 2: Reconnaissance
 
@@ -103,7 +112,7 @@ Output the complete generated file and ask for explicit permission before writin
 
 1. **Never claim AGENTS.md replaced CLAUDE.md.** State the fallback rule accurately every time it comes up. Overclaiming here produces content that is visibly wrong to anyone who reads Anthropic's actual release notes.
 
-2. **Always run the full directory walk before concluding no CLAUDE.md exists.** A CLAUDE.md two directories up from the working directory still blocks the fallback. Checking only the immediate directory produces a false verdict.
+2. **Trust the Step 1 walk, don't shortcut it.** A CLAUDE.md two directories up from the working directory still blocks the fallback. If the working directory has changed since the skill loaded, re-run the detector rather than eyeballing just the immediate directory — that produces a false verdict.
 
 3. **Never silently overwrite an existing instruction file.** Show the current content, show the proposed content, and get explicit approval before writing.
 

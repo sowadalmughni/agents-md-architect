@@ -2,7 +2,7 @@
 
 A Claude Code skill that generates and maintains a project's AI agent instruction file, and tells you the truth about a change most people have wrong.
 
-**The correction:** Claude Code did not switch from CLAUDE.md to AGENTS.md. Version 2.1.277 (September 18, 2026) added AGENTS.md as a fallback: if no CLAUDE.md exists anywhere in the directory walk from the repository root to your working directory, Claude Code reads AGENTS.md instead. If a CLAUDE.md exists, it still wins, unconditionally, with zero change in behavior.
+**The correction:** Claude Code did not switch from CLAUDE.md to AGENTS.md. Version 2.1.277 (September 18, 2026) added AGENTS.md as a fallback: if no CLAUDE.md exists anywhere in the directory walk from your working directory upward, Claude Code reads AGENTS.md instead. If a CLAUDE.md exists, it still wins, unconditionally, with zero change in behavior.
 
 **Why that distinction matters:** AGENTS.md is a real cross-tool standard, not a Claude Code feature. OpenAI released it in August 2025, contributed it to the Linux Foundation's Agentic AI Foundation, and by the time Claude Code caught up, over 60,000 open-source projects had already adopted it, read natively by Codex, Cursor, Devin, Gemini CLI, GitHub Copilot, Windsurf, Cline, Amp, and Aider. A repository with a CLAUDE.md is invisible to every one of those other tools. A repository with both files, maintained independently, drifts: one documented failure mode has Codex following one test command and Claude following a different one from a stale, disagreeing file.
 
@@ -39,7 +39,7 @@ git clone https://github.com/sowadalmughni/agents-md-architect.git .claude/skill
 bash .claude/skills/agents-md-architect/scripts/detect-instruction-files.sh .
 ```
 
-This walks from your repository root to your working directory, exactly the way Claude Code does, and gives you a verdict:
+This walks from your working directory upward — using the git repository root as its practical stopping point, see [What Gets Detected](#what-gets-detected) below — and gives you a verdict:
 
 ```text
 VERDICT
@@ -65,16 +65,20 @@ Or invoke via Claude:
 
 ## What Gets Detected
 
-The script implements the exact rule Claude Code uses, including the two nuances almost everyone gets wrong:
+The script implements the rule Claude Code uses, including the nuances almost everyone gets wrong:
 
 | Counts toward the walk (blocks AGENTS.md fallback) | Does NOT count (fallback still works) |
 | --- | --- |
-| `CLAUDE.md` at any level from root to working directory | Your personal `~/.claude/CLAUDE.md` |
+| `CLAUDE.md` at any level from working directory upward | Your personal `~/.claude/CLAUDE.md` |
 | `.claude/CLAUDE.md` at any level | An organization-managed instruction file |
-| `CLAUDE.local.md` at any level | A `.claude/rules` file |
+| `CLAUDE.local.md` at any level | A `.claude/rules/` directory |
 | — | A CLAUDE.md belonging to an added directory |
 
+`AGENTS.md` has two qualifying locations, not one — `AGENTS.md` and `.claude/AGENTS.md` both count.
+
 A developer can have a personal global CLAUDE.md and still get AGENTS.md loaded correctly for a given project. A stray CLAUDE.md two directories up in a monorepo still silently overrides AGENTS.md for every subdirectory beneath it. The detector shows you which is actually true for your repo instead of leaving it to assumption.
+
+**One boundary the detector can't verify from Anthropic's docs alone:** Anthropic states the walk covers "the working directory and every directory above it," without saying explicitly where it stops. This tool stops at the git repository root as its practical default — it won't see a qualifying file placed above your repo root, in a directory added via `--add-dir`, or in an unusual nested-repo layout. See `reference/agents-md-vs-claude-md.md` for the full caveat.
 
 ---
 
@@ -85,7 +89,8 @@ agents-md-architect/
 ├── .claude-plugin/
 │   ├── plugin.json                       ← Plugin manifest, for /plugin install
 │   └── marketplace.json                  ← Marketplace manifest, for /plugin marketplace add
-├── SKILL.md                              ← 4 invocation modes, the corrected fallback rule stated up front
+├── .github/workflows/ci.yml              ← Shellcheck + JSON validation + test suite on every push/PR
+├── SKILL.md                              ← 4 invocation modes, live detection via dynamic context injection
 ├── README.md                             ← This file
 ├── CHANGELOG.md
 ├── LICENSE                                ← MIT
@@ -94,8 +99,10 @@ agents-md-architect/
 ├── templates/
 │   ├── agents-md-base.md                 ← Cross-tool file with module boundaries + data flow rules, not just commands
 │   └── claude-md-import-shim.md          ← Thin @AGENTS.md import for teams needing Claude-specific extensions
-└── scripts/
-    └── detect-instruction-files.sh       ← Walks root-to-cwd, states the real verdict, diffs on drift
+├── scripts/
+│   └── detect-instruction-files.sh       ← Walks working-directory-to-repo-root, states the real verdict, diffs on drift
+└── tests/
+    └── run-tests.sh                      ← 10 fixture-based cases covering the detector's branches, including 3 regression tests
 ```
 
 ---
@@ -103,6 +110,18 @@ agents-md-architect/
 ## The Differentiator
 
 Most AGENTS.md files in the wild are setup-command lists — install steps, test runners, lint commands. Necessary, but shallow. `templates/agents-md-base.md` goes further: module boundaries an agent must not cross, the data flow it must trace before writing a route or a query, and the dependency direction that prevents the disconnected-schema, unwired-integration failure mode common in AI-generated codebases. Because AGENTS.md is read by every major coding agent now, this closes the context-blind generation gap for the whole multi-agent team a project actually uses, not one vendor's tool.
+
+---
+
+## Development
+
+The detector script has its own test suite — no dependencies beyond bash and git:
+
+```bash
+bash tests/run-tests.sh
+```
+
+This builds throwaway git repos in a temp directory, runs `scripts/detect-instruction-files.sh` against each one, and asserts the verdict output is correct — including regression tests for three bugs caught during review: a `.claude/rules/` directory check that used the wrong test operator, a missing `.claude/AGENTS.md` check, and a path-normalization bug where the walk's repo-root boundary check silently failed whenever git and bash reported the same directory as different strings (short vs. long Windows names, `C:/` vs. `/c/`, or a mounted/symlinked temp directory), causing it to walk all the way to the filesystem root instead of stopping at repo root. CI runs the same suite, plus `shellcheck` on both shell scripts and a JSON-validity check on the plugin manifests, on every push and PR.
 
 ---
 
